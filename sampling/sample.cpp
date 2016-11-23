@@ -63,7 +63,7 @@ inline int binom(int tries, double succ_prob, boost::random::mt19937 rdev = rng)
 
 
 
-void sample(const double* probs, unsigned int* samplespace, unsigned int samples, double switchover = 1.0)
+void sample(const double* probs, unsigned int* samplespace, unsigned int samples, double switchover = 1.0, double total_prob = 1.0, std::mt19937 crdev = gen, boost::random::mt19937 boost_rdev = rng)
 /* Generates a random sample from population 0..n-1 with probabilities probs, and saves it to
  * table sample (which must be of size equal to samples parameter). Parameter switchover controls 
  * preference between beta and binomial modes.
@@ -76,9 +76,9 @@ void sample(const double* probs, unsigned int* samplespace, unsigned int samples
 	while(samples > 0)
 	{
 		pprob += probs[pidx];
-		while(((pprob - cprob) * samples / (1.0 - cprob)) < switchover)
+		while(((pprob - cprob) * samples / (total_prob - cprob)) < switchover)
 		{
-			cprob += beta_1_b(samples) * (1.0 - cprob);
+			cprob += beta_1_b(samples, crdev) * (total_prob - cprob);
 			while(pprob < cprob)
 				pprob += probs[++pidx];
 			samplespace[sampleidx++] = pidx;
@@ -88,7 +88,7 @@ void sample(const double* probs, unsigned int* samplespace, unsigned int samples
 		}
 		if(samples == 0)
 			break;
-		unsigned int nrtaken = binom(samples, (pprob-cprob)/(1.0-cprob));
+		unsigned int nrtaken = binom(samples, (pprob-cprob)/(total_prob-cprob)), boost_rdev;
 		for(unsigned int i=0; i<nrtaken; i++)
 			samplespace[sampleidx++] = pidx;
 		samples -= nrtaken;
@@ -183,7 +183,7 @@ std::unordered_map<int, int>* sample_ht(const double* probs, unsigned int sample
 
 #ifdef THREADS
 #include <pthread.h>
-
+#include <sstream>
 
 struct threadargs_t
 {
@@ -217,8 +217,14 @@ void sample_threadfunc(threadargs_t* args)
 	std::mt19937 gen(rd());
 	boost::random::mt19937 rng(rd());
 
+	if(args->thread_id == 0)
+		DO_CLOCK("RNG init");
+
 	double myprobs = 0.0;
-	for (int ii = args->probsstart; ii < args->probsend; ii++)
+	const double* mprobs = args->probs;
+	unsigned int mprobsstart = args->probsstart;
+	unsigned int mprobsend = args->probsend;
+	for (int ii = mprobsstart; ii < mprobsend; ii++)
 		myprobs += args->probs[ii];
 
 	if(args->thread_id == 0)
@@ -251,6 +257,8 @@ void sample_threadfunc(threadargs_t* args)
 	double switchover = args->switchover;
 	
 	/* Sadly, not *quite* the same as the single-threaded version above... */
+
+	#if 0
 	double correction = 1.0/myprobs;
         double pprob = 0.0;
         double cprob = 0.0;
@@ -260,10 +268,10 @@ void sample_threadfunc(threadargs_t* args)
         unsigned int sampleidx = 0;
         while(samples > 0)
         {
-                pprob += probs[pidx]*correction;
-                while(((pprob - cprob) * samples / (1.0 - cprob)) < switchover)
+                pprob += probs[pidx];
+                while(((pprob - cprob) * samples / (myprobs - cprob)) < switchover)
                 {
-                        cprob += beta_1_b(samples, gen) * (1.0 - cprob);
+                        cprob += beta_1_b(samples, gen) * (myprobs - cprob);
                         while(pprob < cprob)
                                 pprob += probs[++pidx]*correction;
                         samplespace[sampleidx++] = pidx;
@@ -273,13 +281,19 @@ void sample_threadfunc(threadargs_t* args)
                 }
                 if(samples == 0)
                         break;
-                unsigned int nrtaken = binom(samples, (pprob-cprob)/(1.0-cprob), rng);
+                unsigned int nrtaken = binom(samples, (pprob-cprob)/(myprobs-cprob), rng);
                 for(unsigned int i=0; i<nrtaken; i++)
                         samplespace[sampleidx++] = pidx;
                 samples -= nrtaken;
                 pidx++;
                 cprob = pprob;
         }
+	#endif
+
+	std::stringstream s;
+	s << "Calling sample with args: probs: " << args->probs+args->probsstart << " samplespace: " << samplespace << " samples: " << samples << " switchover: " << args->switchover << " totalprobs: " << myprobs << std::endl;
+	std::cout << s.str();
+	sample(args->probs+args->probsstart, samplespace, samples, args->switchover, myprobs);
 
 	if(args->thread_id == 0)
 	        DO_CLOCK("After main loop");
@@ -288,10 +302,16 @@ void sample_threadfunc(threadargs_t* args)
 
 void sample_multithreaded(const double* probs, unsigned int* samplespace, unsigned int popsize, unsigned int samples, double switchover = 1.0, unsigned int no_threads = 1)
 {
-	
-        if(no_threads == 1)
-                return sample(probs, samplespace, samples, switchover);
+	clock_t timer = clock();
 
+	
+        if(1 || no_threads == 1)
+	{
+		std::cout << "Calling sample with args: probs: " << probs << " samplespace: " << samplespace << " samples: " << samples << " switchover: " << switchover << " totalprobs: 1.0"  << std::endl;
+                //return sample(probs, samplespace, samples, switchover);
+		sample(probs, samplespace, samples, switchover);
+		DO_CLOCK("Single-threaded")
+	}
         threadargs_t* threadargs = new threadargs_t[no_threads];
         double* fragment_probs = new double[no_threads];
 	unsigned int* fragment_sizes = new unsigned int[no_threads];
@@ -305,6 +325,7 @@ void sample_multithreaded(const double* probs, unsigned int* samplespace, unsign
 	if(popsize % no_threads > 0)
 		perthread++;
 
+	DO_CLOCK("MT_init");
         for(unsigned int ii=0; ii<no_threads; ii++)
         {
                 threadargs[ii].thread_id = ii;
@@ -322,11 +343,13 @@ void sample_multithreaded(const double* probs, unsigned int* samplespace, unsign
 		assert(pthread_create(&thread_ids[ii], NULL, (void* (*)(void*)) sample_threadfunc, &threadargs[ii]) == 0);
 
         }
+	DO_CLOCK("MT: spawned threads");
 
 	for(unsigned int ii=0; ii<no_threads; ii++)
 	{
 		pthread_join(thread_ids[ii], nullptr);
 	}
+	DO_CLOCK("Multithreaded body");
 
 
 	delete[] threadargs;
