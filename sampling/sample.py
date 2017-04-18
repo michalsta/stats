@@ -132,3 +132,54 @@ def _sample_with_replacement_online_impl(population, probabilities, sample_size)
         cprob = pprob
     
 
+    
+
+def p_first(popsize, samplesize):
+    return float(samplesize)/float(popsize)
+
+
+    
+
+def sample_noreplace(popsize, samplesize):
+    if samplesize == 0:
+        return
+        
+    while popsize > samplesize:
+        if uniform(0.0, 1.0) < p_first(popsize, samplesize):
+            yield popsize
+            samplesize -= 1
+        popsize -= 1
+
+    while popsize > 0:
+        yield popsize
+        popsize -= 1
+
+
+def sample_noreplace2(popsize, samplesize):
+    if samplesize == 0:
+        return
+
+    curr = 0
+    while popsize-curr > samplesize and samplesize > 0:
+        barrier = uniform(0.0, 1.0)
+        idx = 0
+        cprob = 0.0
+        while cprob < barrier:
+            cprob += (1.0 - cprob) * p_first(popsize-curr-idx, samplesize)
+            idx += 1
+        curr += idx
+        yield curr
+        samplesize -= 1
+
+
+    
+    while samplesize > 0:
+        curr += 1
+        yield curr
+        samplesize -= 1
+
+
+print list(sample_noreplace2(10, 5))
+
+
+
