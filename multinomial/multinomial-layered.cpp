@@ -57,8 +57,6 @@ public:
     virtual ~Marginal();
 
     inline int get_isotopeNo() const { return isotopeNo; };
-    double getLightestConfMass() const;
-    double getHeaviestConfMass() const;
     inline double getModeLProb() const { return mode_lprob; };
 };
 
@@ -322,7 +320,7 @@ Marginal::~Marginal()
 
 class LayeredMarginal : public Marginal
 {
-    double current_threshold;
+    double current_threshold, new_threshold;
     std::vector<Conf> configurations;
     std::vector<Conf> fringe;
     Allocator<int> allocator;
@@ -330,18 +328,18 @@ class LayeredMarginal : public Marginal
     const ConfEqual equalizer;
     const KeyHasher keyHasher;
     const ConfOrderMarginalDescending orderMarginal;
-    std::vector<double> lProbs;
-    double* guarded_lProbs;
     const int hashSize;
     std::unordered_set<Conf,KeyHasher,ConfEqual> visited;
     double opc;
     Conf currentConf;
+    std::vector<Conf> new_fringe;
 
 
 
 public:
     LayeredMarginal(Marginal&& m, int tabSize = 1000, int hashSize = 1000);
     bool extend(double new_threshold);
+    bool next();
     inline double get_lProb() const { return opc; };
     inline const Conf& get_conf() const { return currentConf; };
 
@@ -357,40 +355,33 @@ equalizer(isotopeNo), keyHasher(isotopeNo), orderMarginal(atom_lProbs, isotopeNo
 visited(hashSize,keyHasher,equalizer)
 {
     fringe.push_back(mode_conf);
-    lProbs.push_back(std::numeric_limits<double>::infinity());
-    guarded_lProbs = lProbs.data()+1;
 }
 
-bool LayeredMarginal::extend(double new_threshold)
+bool LayeredMarginal::extend(double _new_threshold)
 {
     if(fringe.empty())
         return false;
 
+    new_threshold = _new_threshold;
+
     // TODO: Make sorting optional (controlled by argument?)
-    std::vector<Conf> new_fringe;
+    new_fringe.clear();
 
     visited.clear();
 
     for(unsigned int ii = 0; ii<fringe.size(); ii++)
         visited.insert(fringe[ii]);
 
-    double lpc;
-
     current_threshold = new_threshold;
     fringe.swap(new_fringe);
-
-
-    for(unsigned int ii=sorted_up_to_idx; ii < configurations.size(); ii++)
-        lProbs.push_back(logProb(configurations[ii], atom_lProbs, isotopeNo));
-
-    sorted_up_to_idx = configurations.size();
-    guarded_lProbs = lProbs.data()+1;
 
     return true;
 }
 
 bool LayeredMarginal::next()
 {
+    double lpc;
+
     while(true)
     {
         if(fringe.empty())
