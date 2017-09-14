@@ -1,2 +1,2 @@
 all:
-	clang++ multinomial-layered.cpp -std=c++11
+	clang++ example.cpp -std=c++11

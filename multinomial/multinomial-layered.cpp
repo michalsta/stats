@@ -354,26 +354,25 @@ LayeredMarginal::LayeredMarginal(Marginal&& m, int tabSize, int _hashSize)
 equalizer(isotopeNo), keyHasher(isotopeNo), orderMarginal(atom_lProbs, isotopeNo), hashSize(_hashSize),
 visited(hashSize,keyHasher,equalizer)
 {
-    fringe.push_back(mode_conf);
+    new_fringe.push_back(mode_conf);
 }
 
 bool LayeredMarginal::extend(double _new_threshold)
 {
-    if(fringe.empty())
+    if(new_fringe.empty())
         return false;
 
+    current_threshold = new_threshold;
     new_threshold = _new_threshold;
-
-    // TODO: Make sorting optional (controlled by argument?)
-    new_fringe.clear();
 
     visited.clear();
 
-    for(unsigned int ii = 0; ii<fringe.size(); ii++)
-        visited.insert(fringe[ii]);
+    for(unsigned int ii = 0; ii<new_fringe.size(); ii++)
+        visited.insert(new_fringe[ii]);
 
-    current_threshold = new_threshold;
     fringe.swap(new_fringe);
+
+    new_fringe.clear();
 
     return true;
 }
@@ -391,8 +390,8 @@ bool LayeredMarginal::next()
         fringe.pop_back();
 
         opc = logProb(currentConf, atom_lProbs, isotopeNo);
-        if(opc >= new_threshold)
-            configurations.push_back(currentConf);
+        if(opc < new_threshold)
+            new_fringe.push_back(currentConf);
         else
             break;
     }
@@ -427,4 +426,28 @@ bool LayeredMarginal::next()
 }
 
 
+
+
+class Summator{
+    // Kahan algorithm
+   double sum;
+   double c;
+
+public:
+    inline Summator()
+    { sum = 0.0; c = 0.0;}
+
+    inline void add(double what)
+    {
+        double y = what - c;
+        double t = sum + y;
+        c = (t - sum) - y;
+        sum = t;
+    }
+
+    inline double get()
+    {
+        return sum;
+    }
+};
 
