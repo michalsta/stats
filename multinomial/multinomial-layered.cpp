@@ -342,6 +342,7 @@ public:
     bool next();
     inline double get_lProb() const { return opc; };
     inline const Conf& get_conf() const { return currentConf; };
+    bool empty() { return fringe.empty() and new_fringe.empty(); };
 
 };
 

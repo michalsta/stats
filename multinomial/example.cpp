@@ -12,7 +12,7 @@ int main()
     double current_threshold = -3.0 ;
     Summator s;
     std::cout << "AAA" << std::endl;
-    while(s.get() < 0.9999)
+    while(s.get() < 0.9999 and not LM.empty())
     {
         LM.extend(current_threshold);
         std::cout << "AAA" << s.get() << LM.next() <<  std::endl;
