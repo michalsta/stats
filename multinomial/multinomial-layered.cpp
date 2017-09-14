@@ -333,13 +333,17 @@ class LayeredMarginal : public Marginal
     std::vector<double> lProbs;
     double* guarded_lProbs;
     const int hashSize;
+    std::unordered_set<Conf,KeyHasher,ConfEqual> visited;
+    double opc;
+    Conf currentConf;
+
 
 
 public:
     LayeredMarginal(Marginal&& m, int tabSize = 1000, int hashSize = 1000);
     bool extend(double new_threshold);
-    inline const double& get_lProb(unsigned int idx) const { return guarded_lProbs[idx]; }; // access to idx == -1 is valid and gives a guardian of +inf
-    inline const Conf& get_conf(unsigned int idx) const { return configurations[idx]; };
+    inline double get_lProb() const { return opc; };
+    inline const Conf& get_conf() const { return currentConf; };
 
 };
 
@@ -349,7 +353,8 @@ public:
 
 LayeredMarginal::LayeredMarginal(Marginal&& m, int tabSize, int _hashSize)
 : Marginal(std::move(m)), current_threshold(1.0), allocator(tabSize), sorted_up_to_idx(0),
-equalizer(isotopeNo), keyHasher(isotopeNo), orderMarginal(atom_lProbs, isotopeNo), hashSize(_hashSize)
+equalizer(isotopeNo), keyHasher(isotopeNo), orderMarginal(atom_lProbs, isotopeNo), hashSize(_hashSize),
+visited(hashSize,keyHasher,equalizer)
 {
     fringe.push_back(mode_conf);
     lProbs.push_back(std::numeric_limits<double>::infinity());
@@ -363,49 +368,13 @@ bool LayeredMarginal::extend(double new_threshold)
 
     // TODO: Make sorting optional (controlled by argument?)
     std::vector<Conf> new_fringe;
-    std::unordered_set<Conf,KeyHasher,ConfEqual> visited(hashSize,keyHasher,equalizer);
+
+    visited.clear();
 
     for(unsigned int ii = 0; ii<fringe.size(); ii++)
         visited.insert(fringe[ii]);
 
-    double lpc, opc;
-
-    Conf currentConf;
-    while(not fringe.empty())
-    {
-        currentConf = fringe.back();
-        fringe.pop_back();
-
-        opc = logProb(currentConf, atom_lProbs, isotopeNo);
-        if(opc >= new_threshold)
-            configurations.push_back(currentConf);
-
-
-        for(unsigned int ii = 0; ii < isotopeNo; ii++ )
-            for(unsigned int jj = 0; jj < isotopeNo; jj++ )
-                if( ii != jj and currentConf[jj] > 0 )
-                {
-                    currentConf[ii]++;
-                    currentConf[jj]--;
-
-                    lpc = logProb(currentConf, atom_lProbs, isotopeNo);
-
-                    if (visited.count(currentConf) == 0 and lpc < current_threshold and 
-                        (opc > lpc or (opc == lpc and ii > jj)))
-                    {
-                        Conf nc = allocator.makeCopy(currentConf);
-                        visited.insert(nc);
-                        if(lpc >= new_threshold)
-                            fringe.push_back(nc);
-                        else
-                            new_fringe.push_back(nc);
-                    }
-
-                    currentConf[ii]--;
-                    currentConf[jj]++;
-
-                }
-    }
+    double lpc;
 
     current_threshold = new_threshold;
     fringe.swap(new_fringe);
@@ -416,6 +385,52 @@ bool LayeredMarginal::extend(double new_threshold)
 
     sorted_up_to_idx = configurations.size();
     guarded_lProbs = lProbs.data()+1;
+
+    return true;
+}
+
+bool LayeredMarginal::next()
+{
+    while(true)
+    {
+        if(fringe.empty())
+            return false;
+
+        currentConf = fringe.back();
+        fringe.pop_back();
+
+        opc = logProb(currentConf, atom_lProbs, isotopeNo);
+        if(opc >= new_threshold)
+            configurations.push_back(currentConf);
+        else
+            break;
+    }
+
+
+    for(unsigned int ii = 0; ii < isotopeNo; ii++ )
+        for(unsigned int jj = 0; jj < isotopeNo; jj++ )
+            if( ii != jj and currentConf[jj] > 0 )
+            {
+                currentConf[ii]++;
+                currentConf[jj]--;
+
+                lpc = logProb(currentConf, atom_lProbs, isotopeNo);
+
+                if (visited.count(currentConf) == 0 and lpc < current_threshold and
+                    (opc > lpc or (opc == lpc and ii > jj)))
+                {
+                    Conf nc = allocator.makeCopy(currentConf);
+                    visited.insert(nc);
+                    if(lpc >= new_threshold)
+                        fringe.push_back(nc);
+                    else
+                        new_fringe.push_back(nc);
+                }
+
+                currentConf[ii]--;
+                currentConf[jj]++;
+
+            }
 
     return true;
 }
