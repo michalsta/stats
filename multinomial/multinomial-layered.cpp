@@ -18,20 +18,14 @@ typedef int* Conf;
 
 static inline double logFactorial(int n) { return lgamma(n+1); }
 
-inline double logProb(const int* conf, const double* logProbs, int dim)
+
+double* getLFactorials(int howmany)
 {
-    int     N = 0;
-    double  res = 0.0;
-
-    for(int i=0; i < dim; i++)
-    {
-        N   += conf[i];
-        res -= logFactorial(conf[i]);
-        res += conf[i] * logProbs[i];
-    }
-    return res + logFactorial(N);
+    double* ret = new double[howmany];
+    for(int ii=0; ii<howmany; ii++)
+        ret[ii] = lgamma(ii+1);
+    return ret;
 }
-
 
 
 class Marginal
@@ -44,6 +38,8 @@ protected:
     const double* atom_lProbs;
     const Conf mode_conf;
     const double mode_lprob;
+    const double* lfactorials;
+    const double nom_lfact;
 
 public:
     Marginal(
@@ -58,6 +54,18 @@ public:
 
     inline int get_isotopeNo() const { return isotopeNo; };
     inline double getModeLProb() const { return mode_lprob; };
+    inline double logProb(const int* conf)
+    {
+        double  res = 0.0;
+
+        for(int i=0; i < isotopeNo; i++)
+        {
+            res -= lfactorials[conf[i]];
+            res += conf[i] * atom_lProbs[i];
+        }
+        return res + nom_lfact;
+    }
+
 };
 
 
@@ -103,7 +111,7 @@ Conf initialConfigure(const int atomCnt, const int isotopeNo, const double* prob
     // What we computed so far will be very close to the mode: hillclimb the rest of the way
 
     bool modified = true;
-    double LP = logProb(res, lprobs, isotopeNo);
+    double LP = logProb(res);
     double NLP;
 
     while(modified)
@@ -115,7 +123,7 @@ Conf initialConfigure(const int atomCnt, const int isotopeNo, const double* prob
 		{
 		    res[ii]--;
 		    res[jj]++;
-		    NLP = logProb(res, lprobs, isotopeNo);
+		    NLP = logProb(res);
 		    if(NLP>LP or (NLP==LP and ii>jj))
 		    {
 		    	modified = true;
@@ -264,7 +272,7 @@ public:
 
     inline bool operator()(const Conf conf1, const Conf conf2)
     {// Return true if conf1 is less probable than conf2.
-        return logProb(conf1,logProbs,dim) > logProb(conf2,logProbs,dim);
+        return logProb(conf1) > logProb(conf2);
     };
 };
 
@@ -293,7 +301,9 @@ isotopeNo(_isotopeNo),
 atomCnt(_atomCnt),
 atom_lProbs(getMLogProbs(_probs, isotopeNo)),
 mode_conf(initialConfigure(atomCnt, isotopeNo, _probs, atom_lProbs)),
-mode_lprob(logProb(mode_conf, atom_lProbs, isotopeNo))
+mode_lprob(logProb(mode_conf, atom_lProbs, isotopeNo)),
+lfactorials(getLFactorials(_atomCnt)),
+denom_fact(lfactorials[_atomCnt-1])
 {}
 
 Marginal::Marginal(Marginal&& other) :
@@ -302,7 +312,9 @@ isotopeNo(other.isotopeNo),
 atomCnt(other.atomCnt),
 atom_lProbs(other.atom_lProbs),
 mode_conf(other.mode_conf),
-mode_lprob(logProb(mode_conf, atom_lProbs, isotopeNo))
+mode_lprob(logProb(mode_conf, atom_lProbs, isotopeNo)),
+lfactorials(other.lfactorials),
+denom_fact(other.denom_fact)
 {
     other.disowned = true;
 }
@@ -313,6 +325,7 @@ Marginal::~Marginal()
     {
         delete[] atom_lProbs;
         delete[] mode_conf;
+	delete[] lfactorials;
     }
 }
 
