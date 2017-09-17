@@ -21,6 +21,7 @@ static inline double logFactorial(int n) { return lgamma(n+1); }
 
 double* getLFactorials(int howmany)
 {
+    howmany++;
     double* ret = new double[howmany];
     for(int ii=0; ii<howmany; ii++)
         ret[ii] = lgamma(ii+1);
@@ -32,12 +33,13 @@ class Marginal
 {
 private:
     bool disowned;
+    void setupInitialConf(const double* probs);
 protected:
     const unsigned int isotopeNo;
     const unsigned int atomCnt;
     const double* atom_lProbs;
     const Conf mode_conf;
-    const double mode_lprob;
+    double mode_lprob;
     const double* lfactorials;
     const double nom_lfact;
 
@@ -70,9 +72,9 @@ public:
 
 
 
-Conf initialConfigure(const int atomCnt, const int isotopeNo, const double* probs, const double* lprobs)
+void Marginal::setupInitialConf(const double* probs)
 {
-    Conf res = new int[isotopeNo];
+    Conf res = mode_conf;
 
     for(int i = 0; i < isotopeNo; ++i )
     {
@@ -138,7 +140,6 @@ Conf initialConfigure(const int atomCnt, const int isotopeNo, const double* prob
 
 
     }
-    return res;
 }
 
 
@@ -265,14 +266,13 @@ public:
 class ConfOrderMarginalDescending
 {
 //configurations comparator
-    const double*  logProbs;
-    int dim;
+    Marginal* marginal;
 public:
-    ConfOrderMarginalDescending(const double* logProbs, int dim);
+    ConfOrderMarginalDescending(Marginal* marginal);
 
     inline bool operator()(const Conf conf1, const Conf conf2)
     {// Return true if conf1 is less probable than conf2.
-        return logProb(conf1) > logProb(conf2);
+        return marginal->logProb(conf1) > marginal->logProb(conf2);
     };
 };
 
@@ -285,8 +285,8 @@ ConfEqual::ConfEqual(int dim)
 : size( dim*sizeof(int) )
 {}
 
-ConfOrderMarginalDescending::ConfOrderMarginalDescending(const double* logProbs, int dim)
-: logProbs(logProbs), dim(dim)
+ConfOrderMarginalDescending::ConfOrderMarginalDescending(Marginal* _marginal)
+: marginal(_marginal)
 {}
 
 
@@ -300,11 +300,13 @@ disowned(false),
 isotopeNo(_isotopeNo),
 atomCnt(_atomCnt),
 atom_lProbs(getMLogProbs(_probs, isotopeNo)),
-mode_conf(initialConfigure(atomCnt, isotopeNo, _probs, atom_lProbs)),
-mode_lprob(logProb(mode_conf, atom_lProbs, isotopeNo)),
+mode_conf(new int[_isotopeNo]),
 lfactorials(getLFactorials(_atomCnt)),
-denom_fact(lfactorials[_atomCnt-1])
-{}
+nom_lfact(lfactorials[_atomCnt])
+{
+    setupInitialConf(_probs);
+    mode_lprob = logProb(mode_conf);
+}
 
 Marginal::Marginal(Marginal&& other) :
 disowned(other.disowned),
@@ -312,9 +314,9 @@ isotopeNo(other.isotopeNo),
 atomCnt(other.atomCnt),
 atom_lProbs(other.atom_lProbs),
 mode_conf(other.mode_conf),
-mode_lprob(logProb(mode_conf, atom_lProbs, isotopeNo)),
+mode_lprob(other.mode_lprob),
 lfactorials(other.lfactorials),
-denom_fact(other.denom_fact)
+nom_lfact(other.nom_lfact)
 {
     other.disowned = true;
 }
@@ -364,8 +366,8 @@ public:
 
 
 LayeredMarginal::LayeredMarginal(Marginal&& m, int tabSize, int _hashSize)
-: Marginal(std::move(m)), current_threshold(1.0), allocator(tabSize), sorted_up_to_idx(0),
-equalizer(isotopeNo), keyHasher(isotopeNo), orderMarginal(atom_lProbs, isotopeNo), hashSize(_hashSize),
+: Marginal(std::move(m)), new_threshold(1.0), allocator(isotopeNo, tabSize), sorted_up_to_idx(0),
+equalizer(isotopeNo), keyHasher(isotopeNo), orderMarginal(this), hashSize(_hashSize),
 visited(hashSize,keyHasher,equalizer)
 {
     new_fringe.push_back(mode_conf);
@@ -403,13 +405,12 @@ bool LayeredMarginal::next()
         currentConf = fringe.back();
         fringe.pop_back();
 
-        opc = logProb(currentConf, atom_lProbs, isotopeNo);
+        opc = logProb(currentConf);
         if(opc < new_threshold)
             new_fringe.push_back(currentConf);
         else
             break;
     }
-
 
     for(unsigned int ii = 0; ii < isotopeNo; ii++ )
         for(unsigned int jj = 0; jj < isotopeNo; jj++ )
@@ -418,7 +419,7 @@ bool LayeredMarginal::next()
                 currentConf[ii]++;
                 currentConf[jj]--;
 
-                lpc = logProb(currentConf, atom_lProbs, isotopeNo);
+                lpc = logProb(currentConf);
 
                 if (visited.count(currentConf) == 0 and lpc < current_threshold and
                     (opc > lpc or (opc == lpc and ii > jj)))
