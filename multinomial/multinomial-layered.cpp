@@ -16,9 +16,6 @@
 typedef int* Conf;
 
 
-static inline double logFactorial(int n) { return lgamma(n+1); }
-
-
 double* getLFactorials(int howmany)
 {
     howmany++;
@@ -60,7 +57,7 @@ public:
     {
         double  res = 0.0;
 
-        for(int i=0; i < isotopeNo; i++)
+        for(unsigned int i=0; i < isotopeNo; i++)
         {
             res -= lfactorials[conf[i]];
             res += conf[i] * atom_lProbs[i];
@@ -76,14 +73,14 @@ void Marginal::setupInitialConf(const double* probs)
 {
     Conf res = mode_conf;
 
-    for(int i = 0; i < isotopeNo; ++i )
+    for(unsigned int i = 0; i < isotopeNo; ++i )
     {
         res[i] = int( atomCnt * probs[i] ) + 1;
     }
 
     int s = 0;
 
-    for(int i = 0; i < isotopeNo; ++i) s += res[i];
+    for(unsigned int i = 0; i < isotopeNo; ++i) s += res[i];
 
     int diff = atomCnt - s;
 
@@ -119,8 +116,8 @@ void Marginal::setupInitialConf(const double* probs)
     while(modified)
     {
     	modified = false;
-    	for(int ii = 0; ii<isotopeNo; ii++)
-	    for(int jj = 0; jj<isotopeNo; jj++)
+    	for(unsigned int ii = 0; ii<isotopeNo; ii++)
+	    for(unsigned int jj = 0; jj<isotopeNo; jj++)
 	        if(ii != jj and res[ii] > 0)
 		{
 		    res[ii]--;
@@ -339,7 +336,6 @@ class LayeredMarginal : public Marginal
     std::vector<Conf> configurations;
     std::vector<Conf> fringe;
     Allocator<int> allocator;
-    unsigned int sorted_up_to_idx;
     const ConfEqual equalizer;
     const KeyHasher keyHasher;
     const ConfOrderMarginalDescending orderMarginal;
@@ -366,7 +362,7 @@ public:
 
 
 LayeredMarginal::LayeredMarginal(Marginal&& m, int tabSize, int _hashSize)
-: Marginal(std::move(m)), new_threshold(1.0), allocator(isotopeNo, tabSize), sorted_up_to_idx(0),
+: Marginal(std::move(m)), new_threshold(1.0), allocator(isotopeNo, tabSize),
 equalizer(isotopeNo), keyHasher(isotopeNo), orderMarginal(this), hashSize(_hashSize),
 visited(hashSize,keyHasher,equalizer)
 {
